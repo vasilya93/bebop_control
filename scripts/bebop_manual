@@ -1,0 +1,141 @@
+#!/usr/bin/env python
+
+import rospy
+import threading
+import sys, select, tty, termios
+from std_msgs.msg import String
+from std_msgs.msg import Empty
+from geometry_msgs.msg import Vector3
+from geometry_msgs.msg import Twist
+from geometry_msgs.msg import PoseStamped
+from mpl_toolkits.mplot3d import Axes3D
+
+class NonBlockingConsole(object):
+    def __enter__(self):
+        self.old_settings = termios.tcgetattr(sys.stdin)
+        tty.setcbreak(sys.stdin.fileno())
+        return self
+
+    def __exit__(self, type, value, traceback):
+        termios.tcsetattr(sys.stdin, termios.TCSADRAIN, self.old_settings)
+
+    def get_data(self):
+        try:
+            if select.select([sys.stdin], [], [], 0) == ([sys.stdin], [], []):
+                return sys.stdin.read(1)
+        except:
+            return '[CTRL-C]'
+        return False
+
+def tagPoseCallback(poseStamped):
+    pass
+
+def key_reader():
+	global is_running
+	global twist_current
+	global cam_tilt_current
+	global is_keyreader_finished
+	global speed_x
+	global speed_y
+	global speed_z
+	global speed_pitch
+	global speed_inc_lin
+	global speed_inc_ang
+
+	pub_takeoff = rospy.Publisher('bebop/takeoff', Empty, queue_size=10)
+	pub_landing = rospy.Publisher('bebop/land', Empty, queue_size=10)
+	message_empty = Empty()
+	with NonBlockingConsole() as nbc:
+		while is_running:
+			c = nbc.get_data()
+        	    	if c == '\x1b': # x1b is ESC
+				is_keyreader_finished = True
+				pub_landing.publish(message_empty)
+        	       		break
+        	    	elif c == 'a':
+				speed_pitch = speed_pitch + speed_inc_ang
+				twist_current = Twist(Vector3(speed_x, speed_y, speed_z), Vector3(0.0, 0.0, speed_pitch))
+        	        	print "pitch+"
+        	    	elif c == 'd':
+				print "pitch-"
+				speed_pitch = speed_pitch - speed_inc_ang
+				twist_current = Twist(Vector3(speed_x, speed_y, speed_z), Vector3(0.0, 0.0, speed_pitch))
+			elif c == 's':
+				#speed_z = speed_z - speed_inc_lin
+				#twist_current = Twist(Vector3(speed_x, speed_y, speed_z), Vector3(0.0, 0.0, speed_pitch))
+				cam_tilt_current.angular.y -= 1
+				print "z is %f" % cam_tilt_current.angular.y
+			elif c == 'w':
+				#speed_z = speed_z + speed_inc_lin
+				#twist_current = Twist(Vector3(speed_x, speed_y, speed_z), Vector3(0.0, 0.0, speed_pitch))
+				cam_tilt_current.angular.y += 1
+        	        	print "z is %f" % cam_tilt_current.angular.y
+			elif c == '8':
+				speed_x = speed_x + speed_inc_lin
+				twist_current = Twist(Vector3(speed_x, speed_y, speed_z), Vector3(0.0, 0.0, speed_pitch))
+        	        	print "x+"
+			elif c == '2':
+				speed_x = speed_x - speed_inc_lin
+				twist_current = Twist(Vector3(speed_x, speed_y, speed_z), Vector3(0.0, 0.0, speed_pitch))
+        	        	print "x-"
+			elif c == '6':
+				speed_y = speed_y - speed_inc_lin
+				twist_current = Twist(Vector3(speed_x, speed_y, speed_z), Vector3(0.0, 0.0, speed_pitch))
+        	        	print "y-"
+			elif c == '4':
+				speed_y = speed_y + speed_inc_lin
+				twist_current = Twist(Vector3(speed_x, speed_y, speed_z), Vector3(0.0, 0.0, speed_pitch))
+        	        	print "y+"
+			elif c == '5':
+				speed_x = 0.0
+				speed_y = 0.0
+				speed_z = 0.0
+				speed_pitch = 0.0
+				twist_current = Twist(Vector3(speed_x, speed_y, speed_z), Vector3(0.0, 0.0, speed_pitch))
+        	        	print "zero position"
+			elif c == 'l':
+				speed_x = 0.0
+				speed_y = 0.0
+				speed_z = 0.0
+				speed_pitch = 0.0
+				twist_current = Twist(Vector3(speed_x, speed_y, speed_z), Vector3(0.0, 0.0, speed_pitch))
+				pub_landing.publish(message_empty)
+        	        	print "land"
+			elif c == 't':
+				pub_takeoff.publish(message_empty)
+        	        	print "take off"
+
+def bebop_manual():
+	global twist_current
+	global cam_tilt_current
+	global is_keyreader_finished
+	pub = rospy.Publisher('bebop/cmd_vel', Twist, queue_size=10)
+	pub_cam_tilt = rospy.Publisher('bebop/camera_control', Twist, queue_size=10)
+	rate = rospy.Rate(10) # 10hz
+	while not rospy.is_shutdown() and not is_keyreader_finished:
+		pub.publish(twist_current)
+		pub_cam_tilt.publish(cam_tilt_current)
+		rate.sleep()
+
+
+if __name__ == '__main__':
+    try:
+	speed_x = 0.0
+	speed_y = 0.0
+	speed_z = 0.0
+	speed_pitch = 0.0
+	speed_inc_lin = 0.02
+	speed_inc_ang = 0.02
+
+	rospy.init_node('bebop_manual', anonymous=True)
+        rospy.Subscriber("/aruco_single/pose", PoseStamped, tagPoseCallback)
+	twist_current = Twist(Vector3(0, 0, 0), Vector3(0, 0, 0))
+	cam_tilt_current = Twist(Vector3(0, 0, 0), Vector3(0, 0, 0))
+	is_running = True
+	is_keyreader_finished = False
+	thread_reader = threading.Thread(target=key_reader)
+	thread_reader.start()
+        bebop_manual()
+	is_running = False
+    except rospy.ROSInterruptException:
+        pass

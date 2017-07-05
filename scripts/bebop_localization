@@ -1,0 +1,310 @@
+#!/usr/bin/env python
+
+# directions of selected space axes should be the same as
+# directions of camera axis
+
+# x - increases when i move the marker on camera's right (mine left)
+# it is as if the copter moves to its left
+# so world x axis is running from the door to the window [actually opposite]
+
+# y - increases when i move the marker down
+# it is as if the copter moves to the top
+# so the world y axis is running from the floor to the ceiling
+
+# z - increases with the marker moving away from camera
+# it is as if the copter flies away from the marker (from the shelf)
+# so the world z axis is running from the shelf to the opposite wall
+
+# it is necessary to perform procedure of calibration in the beginning,
+# after putting all the markers to the shell
+
+# aruco returns position of the marker with regards to the camera, not position of
+# the camera with regards to the marker. That is why transformations changes
+# if the camera rotates
+
+# it is better if for calibration photos are made from different sides, so it would be
+# nice to introduce some measure of proximity beetween the taken samples
+
+import rospy
+import os
+import math
+import numpy as np
+from copy import deepcopy
+from aruco_msgs.msg import MarkerArray
+from geometry_msgs.msg import Pose
+from geometry_msgs.msg import Point
+from geometry_msgs.msg import Quaternion
+from marker_pair import MarkerPair
+from marker_pair import CalibrationPairs
+from config_file import readConfigFile, writeConfigFile
+from transformations import quaternion_matrix
+from transformations import inverse_matrix
+from transformations import concatenate_matrices
+from transformations import quaternion_from_matrix
+from transformations import euler_from_matrix
+from pose_utils import get_mean_pose
+
+np.set_printoptions(suppress=True)
+script_path = os.path.dirname(os.path.realpath(__file__))
+
+NODE_STATE_CALIBRATE = 1
+NODE_STATE_LOCATE_MARKERS = 2
+NODE_STATE_NAVIGATE = 3
+
+DO_CALIBRATE = True
+#CALIBRATION_IDS = [101, 102, 201] # Should be presented in increasing order
+CALIBRATION_IDS = [001, 002, 003]
+CALIBRATION_SET_SIZE = 100
+
+DO_LIMIT_CONSIDERED_IDS = False
+CONSIDERED_IDS = [103, 104, 105, \
+        202, 203, 204, 205, \
+        301, 302, 303, 304, 305,\
+        401, 402, 403, 404, 405, \
+        501, 502, 503, 504, 505]
+
+if DO_LIMIT_CONSIDERED_IDS:
+    NUM_MARKERS = len(CONSIDERED_IDS)
+else:
+    NUM_MARKERS = 57
+
+ALL_CONSIDERED_IDS = deepcopy(CONSIDERED_IDS)
+ALL_CONSIDERED_IDS.extend(CALIBRATION_IDS)
+
+node_state = NODE_STATE_NAVIGATE
+
+calibration_pairs = None
+is_calibration_finished = False
+is_marker_location_finished = False
+calibration_poses = []
+
+dict_markers = {}
+dict_marker_poses = {}
+
+posePublisher = None
+
+def convert_dict_to_poses():
+    global dict_markers
+    global dict_marker_poses
+    dict_marker_poses = {}
+    for key in dict_markers:
+        pose = Pose()
+        pose.position.x = eval(dict_markers[key]["x"])
+        pose.position.y = eval(dict_markers[key]["y"])
+        pose.position.z = eval(dict_markers[key]["z"])
+        dict_marker_poses[key] = pose
+
+def convert_poses_to_dict():
+    global dict_markers
+    global dict_marker_poses
+    dict_markers = {}
+    for key in dict_marker_poses:
+        dict_markers[key] = {}
+        dict_markers[key]["x"] = dict_marker_poses[key].position.x
+        dict_markers[key]["y"] = dict_marker_poses[key].position.y
+        dict_markers[key]["z"] = dict_marker_poses[key].position.z
+
+def pose_to_mat(pose):
+    quaternion = [pose.orientation.w, \
+            pose.orientation.x, \
+            pose.orientation.y, \
+            pose.orientation.z]
+
+    mat = quaternion_matrix(quaternion)
+    mat[0, 3] = pose.position.x
+    mat[1, 3] = pose.position.y
+    mat[2, 3] = pose.position.z
+    return mat
+
+def mat_to_pose(mat):
+    mat_rotation = deepcopy(mat)
+    mat_rotation[0, 3] = 0.0
+    mat_rotation[1, 3] = 0.0
+    mat_rotation[2, 3] = 0.0
+    q_array = quaternion_from_matrix(mat_rotation)
+    quaternion = array_to_quaternion(q_array)
+    position = Point(mat[0, 3], \
+            mat[1, 3], \
+            mat[2, 3])
+
+    return Pose(position, quaternion)
+
+def get_inverse_pose(pose):
+    mat = pose_to_mat(pose)
+    mat_inverse = inverse_matrix(mat)
+    pose_inverse = mat_to_pose(mat_inverse)
+    return pose_inverse
+
+def array_to_quaternion(array):
+    q = Quaternion() 
+    q.w = array[0]
+    q.x = array[1]
+    q.y = array[2]
+    q.z = array[3]
+    return q
+
+def get_relative_pose(pose_base_to_cam, pose_obj_to_cam):
+    mat_pose = get_relative_position(pose_base_to_cam, pose_obj_to_cam)
+    orientation = array_to_quaternion(quaternion_from_matrix(mat_pose, \
+            isprecise = False))
+    position = Point(mat_pose[0, 3], mat_pose[1, 3], mat_pose[2, 3])
+    pose = Pose(position, orientation)
+    return pose
+
+def get_relative_position(pose_base_to_cam, pose_obj_to_cam):
+    mat_base_to_cam = pose_to_mat(pose_base_to_cam)
+    mat_obj_to_cam = pose_to_mat(pose_obj_to_cam)
+    mat_cam_to_base = inverse_matrix(mat_base_to_cam)
+    mat_obj_to_base = concatenate_matrices(mat_cam_to_base, mat_obj_to_cam)
+    return mat_obj_to_base
+
+def get_average_pose(marker_array):
+    list_poses = []
+    for marker in marker_array.markers:
+        marker_id_str = str(marker.id)
+        if marker_id_str in dict_marker_poses:
+            pose_new = get_inverse_pose(marker.pose.pose)
+
+            pose_new.position.x += dict_marker_poses[marker_id_str].position.x
+            pose_new.position.y += dict_marker_poses[marker_id_str].position.y
+            pose_new.position.z += dict_marker_poses[marker_id_str].position.z
+
+            list_poses.append(pose_new)
+        else:
+            print("Warning: marker %s is not in configuration file" % marker_id_str)
+    mean_pose = get_mean_pose(list_poses)
+    return mean_pose
+
+def agregate_relative_poses(marker_array, do_force = None):
+    global calibration_pairs
+
+    if do_force is None:
+        do_force = False
+
+    if DO_LIMIT_CONSIDERED_IDS:
+        markers = [marker for marker in marker_array.markers if marker.id in ALL_CONSIDERED_IDS]
+    else:
+        markers = marker_array.markers
+
+    array_len = len(markers)
+    if array_len < 2:
+        return
+
+    markers.sort(key = lambda x: x.id)
+    for i in range(0, array_len - 1):
+        for j in range(i + 1, array_len):
+            id_minor = markers[i].id
+            id_major = markers[j].id
+            diff = abs(id_major % 100 - id_minor % 100)
+            diff_hundreds = id_major / 100 - id_minor / 100
+
+            if id_minor in CALIBRATION_IDS:
+                if id_major >= 400 or id_major % 100 > 5:
+                    continue
+            elif diff > 3 or diff_hundreds > 1:
+                continue
+
+            if do_force:
+                pose_relative = get_relative_pose(markers[i].pose.pose, \
+                        markers[j].pose.pose)
+                calibration_pairs.force_add_pose(id_minor, id_major, pose_relative)
+            elif calibration_pairs.is_pair_present(id_minor, id_major):
+                pose_relative = get_relative_pose(markers[i].pose.pose, \
+                        markers[j].pose.pose)
+                calibration_pairs.add_pose(id_minor, id_major, pose_relative)
+
+def callback(marker_array):
+    global is_calibration_finished
+    global is_marker_location_finished
+    global dict_marker_poses
+    global calibration_pairs
+    global node_state
+    if node_state == NODE_STATE_CALIBRATE:
+        if not is_calibration_finished:
+            if calibration_pairs is None:
+                calibration_pairs = CalibrationPairs(calibration_set_size = CALIBRATION_SET_SIZE)
+                calibration_pairs.create_pairs(CALIBRATION_IDS)
+            agregate_relative_poses(marker_array)
+            if calibration_pairs.is_set_full():
+                is_calibration_finished = True
+                dict_corrected_poses = calibration_pairs.get_corrected_poses(calibration_poses, \
+                        CALIBRATION_IDS)
+                for key in dict_corrected_poses:
+                    if key in dict_marker_poses:
+                        dict_marker_poses[key] = deepcopy(dict_corrected_poses[key])
+                    else:
+                        print("Warning: calibration marker id (%s of %s) was not found in configuration file set" % \
+                                (str(key), str(type(key))))
+
+                convert_poses_to_dict()
+                writeConfigFile(script_path, dict_markers)
+                print("Info: calibration markers configuration file was rewritten")
+                calibration_pairs = None
+
+                node_state = NODE_STATE_LOCATE_MARKERS
+                print("Info: state NODE_STATE_CALIBRATE finished")
+            else:
+                print calibration_pairs.get_status_string()
+                print " "
+    elif node_state == NODE_STATE_LOCATE_MARKERS:
+        if not is_marker_location_finished:
+            if calibration_pairs is None:
+                calibration_pairs = CalibrationPairs(calibration_set_size = CALIBRATION_SET_SIZE, \
+                        banned_major_ids = CALIBRATION_IDS, markers_num = NUM_MARKERS)
+            agregate_relative_poses(marker_array, do_force = True)
+
+            are_all_markers_present = calibration_pairs.are_all_markers_present()
+            is_set_coherent = calibration_pairs.is_set_coherent()
+            is_set_full = calibration_pairs.is_set_full()
+            if are_all_markers_present and \
+                is_set_coherent and \
+                is_set_full:
+                print("Info: poses for marker location were gathered")
+                is_marker_location_finished = True
+                calibration_pairs.get_absolute_poses(dict_marker_poses)
+
+                convert_poses_to_dict()
+                writeConfigFile(script_path, dict_markers)
+                calibration_pairs = None
+                print("Info: calibration markers configuration file was rewritten")
+
+                node_state = NODE_STATE_NAVIGATE
+                print("Info: state NODE_STATE_LOCATE_MARKERS finished")
+            else:
+                print("all markers: %s; set coherent: %s; set full: %s" % (\
+                        str(are_all_markers_present), \
+                        str(is_set_coherent), \
+                        str(is_set_full)))
+                print calibration_pairs.get_status_string()
+                print " "
+    elif node_state == NODE_STATE_NAVIGATE:
+        pose_mean = get_average_pose(marker_array)
+        if pose_mean != None:
+            posePublisher.publish(pose_mean)
+    else:
+        print("Error: current state of the localization node is unknown")
+ 
+def bebop_navigation():
+    global dict_markers
+    global calibration_pairs
+    global posePublisher
+
+    dict_markers = readConfigFile(script_path)
+    convert_dict_to_poses()
+    for calibration_id in CALIBRATION_IDS:
+        str_calibration_id = str(calibration_id)
+        if not str_calibration_id in dict_marker_poses:
+            print("Error: pose of marker %d is not preset in configuration file. \
+            Exiting..." % calibration_id)
+            exit(1)
+        else:
+            calibration_poses.append(dict_marker_poses[str_calibration_id])
+
+ 
+    rospy.init_node('bebop_localization', anonymous = True)
+    posePublisher = rospy.Publisher('bebop_pose', Pose, queue_size = 10)
+    rospy.Subscriber("/aruco_simple/marker_array", MarkerArray, callback)
+    rospy.spin()
+
+if __name__ == '__main__':
+    bebop_navigation()

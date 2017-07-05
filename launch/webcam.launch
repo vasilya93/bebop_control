@@ -1,0 +1,37 @@
+<launch>
+
+    <!-- <arg name="markerId"        default="94"/> -->
+    <arg name="marker1Id"         default="94"/>
+    <arg name="marker2Id"         default="28"/>
+    <arg name="markerSize"        default="0.1"/>    <!-- in m -->
+    <arg name="eye"               default="left"/>
+    <arg name="dct_normalization" default="True" />
+    <arg name="dct_filter_size"   default="2" />
+    <arg name="marker1_frame"     default="marker_hand_frame" />
+    <arg name="marker2_frame"     default="marker_object_frame" />
+
+
+    <node pkg="cv_camera" type="cv_camera_node" name="cv_camera" />
+    <node pkg="image_proc" type="image_proc" name="image_proc" ns="cv_camera" />
+
+    <node pkg="aruco_ros" type="double" name="aruco_simple">
+        <remap from="/camera_info" to="/cv_camera/camera_info" />
+        <remap from="/image" to="/cv_camera/image_rect_color" />
+        <param name="image_is_rectified" value="True"/>
+        <param name="marker_size" value="$(arg markerSize)"/>
+        <param name="marker_id1" value="$(arg marker1Id)"/>
+        <param name="marker_id2" value="$(arg marker2Id)"/>
+        <param name="normalizeImage" value="$(arg dct_normalization)"/>
+        <param name="dct_components_to_remove" value="$(arg dct_filter_size)"/>
+        <param name="parent_name" value="stereo_gazebo_$(arg eye)_camera_optical_frame"/>
+        <param name="child_name1" value="$(arg marker1_frame)" />
+        <param name="child_name2" value="$(arg marker2_frame)" />
+    </node>
+
+    <node pkg="image_view" type="image_view" name="image_view">
+        <remap from="/image" to="/aruco_simple/result" />
+        <!-- <param name="marker_size"        value="$(arg markerSize)"/> -->
+    </node>
+
+</launch>
+
