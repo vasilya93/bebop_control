@@ -9,11 +9,19 @@ TIME_POINT_REACHED = 1.0
 
 class RouteManager:
     def __init__(self):
-        self._waypoints = [Point(-0.5, 0.5, 0.9), \
-            Point(-2.0, 0.5, 0.9), \
-            Point(-2.0, 2.0, 0.9), \
-            Point(-0.5, 2.0, 0.9), \
-            Point(-0.5, 0.5, 0.9)]
+        #self._waypoints = [Point(-0.2, 0.5, 0.9), \
+            #Point(-3.6, 0.5, 0.9), \
+            #Point(-3.6, 1.0, 0.9), \
+            #Point(-0.2, 1.0, 0.9), \
+            #Point(-0.2, 1.5, 0.9), \
+            #Point(-3.6, 1.5, 0.9), \
+            #Point(-3.6, 2.0, 0.9), \
+            #Point(-0.2, 2.0, 0.9), \
+            #Point(-0.2, 2.5, 0.9), \
+            #Point(-3.6, 2.5, 0.9), \
+            #Point(-3.6, 0.5, 0.9), \
+            #Point(-0.2, 0.5, 0.9)]
+        self._waypoints = [Point(-1.5, 1.0, 0.9)]
         self._current_waypoint = -1
         self._is_route_finished = False
         self._time_big_error = 0.0
@@ -25,13 +33,15 @@ class RouteManager:
 
         if self._current_waypoint == -1:
             if len(self._waypoints) > 0:
-                self._current_waypoint = 1
+                self._current_waypoint = 0
                 print("Info: copter went for waypoint number %d" % self._current_waypoint)
             else:
                 print("Warning: there are no waypoints in RouteManager!")
                 return
 
         self._calculate_current_error()
+        if self._is_route_finished:
+            return
 
         if np.abs(self._current_error.x) < ERROR_THRESHOLD and \
                 np.abs(self._current_error.y) < ERROR_THRESHOLD and \

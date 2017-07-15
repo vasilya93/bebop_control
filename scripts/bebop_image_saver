@@ -1,0 +1,67 @@
+#!/usr/bin/env python
+
+import rospy
+import threading
+import subprocess
+import cv2
+
+import numpy as np
+
+from time import gmtime, strftime
+from sensor_msgs.msg import Image
+from std_msgs.msg import Bool
+from cv_bridge import CvBridge, CvBridgeError
+
+DIRNAME_OUTPUT = "/home/vasilya93/Pictures/bebop_control"
+
+dirname_output_full = ""
+is_saver_enabled = False
+
+cv_bridge = CvBridge()
+same_time_counter = 0
+previous_time = gmtime()
+def camera_callback(camera_image):
+    global same_time_counter, previous_time
+    global dirname_output_full
+
+    if not is_saver_enabled:
+        return
+
+    cv_image = cv_bridge.imgmsg_to_cv2(camera_image, "bgr8")
+    current_time = gmtime()
+    string_time = strftime("%Y%m%d_%H%M%S", current_time)
+    if current_time == previous_time:
+        same_time_counter += 1
+        return
+    else:
+        same_time_counter = 0
+        previous_time = current_time
+
+    image_path = dirname_output_full + "/" + string_time + "_" + str(same_time_counter) + ".png"
+    cv2.imwrite(image_path, cv_image)
+    cv2.waitKey(1)
+
+def enable_saver_callback(do_enable):
+    global is_saver_enabled
+    is_saver_enabled = do_enable
+
+def bebop_image_saver():
+    global dirname_output_full
+    string_time = strftime("%Y%m%d_%H%M%S", gmtime())
+    dirname_output_full = DIRNAME_OUTPUT + "/" + string_time
+    subprocess.call(["mkdir", "-p", dirname_output_full])
+
+    rate = rospy.Rate(100) # 100hz
+    while not rospy.is_shutdown():
+        pass
+        rate.sleep()
+
+# for the copter x is negative direction
+if __name__ == '__main__':
+    try:
+	rospy.init_node('bebop_image_saver', anonymous=True)
+	rospy.Subscriber('bebop/image_rect_color', Image, camera_callback)
+	rospy.Subscriber('bebop_control/enable_image_saver', Bool, enable_saver_callback)
+        bebop_image_saver()
+    except rospy.ROSInterruptException:
+        pass

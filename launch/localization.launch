@@ -43,6 +43,7 @@
     </node>
 
     <node pkg="bebop_control" type="bebop_localization" name="bebop_localization" />
+    <node pkg="bebop_control" type="bebop_image_saver" name="bebop_image_saver" />
 
     <node pkg="image_view" type="image_view" name="image_view">
         <remap from="/image" to="/aruco_simple/result" />

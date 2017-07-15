@@ -8,6 +8,7 @@ import numpy as np
 
 from std_msgs.msg import String
 from std_msgs.msg import Empty
+from std_msgs.msg import Bool
 
 from geometry_msgs.msg import Vector3
 from geometry_msgs.msg import Twist
@@ -23,14 +24,6 @@ from transform_enhanced import get_yaw_from_quaternion
 import state_manager
 from route_manager import RouteManager
 
-# All actuations and decisions are made in the main loop
-# callback only renews the information used in the main loop
-# main loop checks the state all the time and published according to
-# the state that it sees.
-
-# Key reading thread also may publish messages like landing and taking off.
-# may also set desired altitude
-
 ERROR_THRESHOLD = 0.1
 
 TAKEOFF_HEIGHT = 0.5
@@ -41,7 +34,7 @@ bebop_yaw = 0.0
 was_input_updated = False
 
 controller_z = pd_controller(0.4, 10.0, 1.0) # global z, for copter looking at the shelf it is -x
-controller_x = pd_controller(0.4, 12.0, 0.4) # global x, for copter looking at the shelf it is y (or -y) 
+controller_x = pd_controller(0.4, 12.0, 0.1) # global x, for copter looking at the shelf it is y (or -y) 
 controller_y = pd_controller(1.0, 3.0, 0.7) # global y, for copter looking at the shelf it is z
 controller_yaw = pd_controller(0.02, 0.0, 1.0) # global y, for copter looking at the shelf it is z
 #controller_z.set_value_desired(0.9)
@@ -85,11 +78,6 @@ def poseCallback(pose):
     was_input_updated = True
     bebop_yaw = get_yaw_from_quaternion(bebop_pose.orientation)
 
-    #if not was_position_initial_set:
-        #controller_x.set_value_desired(bebop_pose.position.x)
-        #controller_y.set_value_desired(bebop_pose.position.y)
-        #was_position_initial_set = True
-
     route_manager.set_current_position(bebop_pose.position, time_current)
 
     position_error = route_manager.get_current_error()
@@ -104,6 +92,7 @@ def key_reader():
 
 	pub_takeoff = rospy.Publisher('bebop/takeoff', Empty, queue_size=10)
 	pub_landing = rospy.Publisher('bebop/land', Empty, queue_size=10)
+	pub_image_saver = rospy.Publisher('bebop_control/enable_image_saver', Bool, queue_size=10)
 	message_empty = Empty()
 	with NonBlockingConsole() as nbc:
 		while is_running:
@@ -137,6 +126,12 @@ def key_reader():
                             copter_state_manager.set_state(state_manager.COPTER_STATE_TAKING_OFF, time_current)
                             pub_takeoff.publish(message_empty)
                             print "take off"
+                        elif c == 's':
+                            pub_image_saver.publish(Bool(True))
+                            print "saving images"
+                        elif c == 'f':
+                            pub_image_saver.publish(Bool(False))
+                            print "not saving images"
 
 def bebop_auto():
         global route_manager
@@ -175,7 +170,8 @@ def bebop_auto():
                     speed_yaw = 0.0
 
             current_state = copter_state_manager.get_state(time_current)
-            if current_state == state_manager.COPTER_STATE_NAVIGATING:
+            if (current_state == state_manager.COPTER_STATE_NAVIGATING or \
+                    route_manager.is_route_finished()) and current_state != state_manager.COPTER_STATE_LANDING:
                 twist_current = Twist(Vector3(speed_x, speed_y, speed_z), Vector3(0.0, 0.0, speed_yaw))
             else:
                 twist_current = Twist(Vector3(0.0, 0.0, 0.0), Vector3(0.0, 0.0, 0.0))
