@@ -32,7 +32,7 @@ def camera_callback(camera_image):
     string_time = strftime("%Y%m%d_%H%M%S", current_time)
     if current_time == previous_time:
         same_time_counter += 1
-        return
+#        return
     else:
         same_time_counter = 0
         previous_time = current_time
@@ -43,7 +43,7 @@ def camera_callback(camera_image):
 
 def enable_saver_callback(do_enable):
     global is_saver_enabled
-    is_saver_enabled = do_enable
+    is_saver_enabled = do_enable.data
 
 def bebop_image_saver():
     global dirname_output_full

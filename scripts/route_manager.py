@@ -9,19 +9,23 @@ TIME_POINT_REACHED = 1.0
 
 class RouteManager:
     def __init__(self):
-        #self._waypoints = [Point(-0.2, 0.5, 0.9), \
-            #Point(-3.6, 0.5, 0.9), \
-            #Point(-3.6, 1.0, 0.9), \
-            #Point(-0.2, 1.0, 0.9), \
-            #Point(-0.2, 1.5, 0.9), \
-            #Point(-3.6, 1.5, 0.9), \
-            #Point(-3.6, 2.0, 0.9), \
-            #Point(-0.2, 2.0, 0.9), \
-            #Point(-0.2, 2.5, 0.9), \
-            #Point(-3.6, 2.5, 0.9), \
-            #Point(-3.6, 0.5, 0.9), \
-            #Point(-0.2, 0.5, 0.9)]
-        self._waypoints = [Point(-1.5, 1.0, 0.9)]
+        self._waypoints = [Point(-0.2, 0.5, 0.9), \
+            Point(-3.6, 0.5, 0.9), \
+            Point(-3.6, 1.0, 0.9), \
+            Point(-0.2, 1.0, 0.9), \
+            Point(-0.2, 1.5, 0.9), \
+            Point(-3.6, 1.5, 0.9), \
+            Point(-3.6, 2.0, 0.9), \
+            Point(-0.2, 2.0, 0.9), \
+            Point(-0.2, 2.5, 0.9), \
+            Point(-3.6, 2.5, 0.9), \
+            Point(-3.6, 0.5, 0.9), \
+            Point(-0.2, 0.5, 0.9)]
+        #self._waypoints = [Point(-1.5, 0.5, 0.9)] # second shelf
+        #self._waypoints = [Point(-1.5, 1.0, 0.9)] # second shelf
+        #self._waypoints = [Point(-3.6, 1.5, 0.9)] # third shelf
+        #self._waypoints = [Point(-2.5, 2.0, 0.9)] # fourth shelf
+        #self._waypoints = [Point(-.5, 2.5, 0.9)] # fourth shelf
         self._current_waypoint = -1
         self._is_route_finished = False
         self._time_big_error = 0.0

@@ -188,7 +188,7 @@ if __name__ == '__main__':
 
 	rospy.init_node('bebop_auto', anonymous = True)
         position_error_publisher = rospy.Publisher('bebop_position_error', Point, queue_size = 10)
-        rospy.Subscriber("pose", Pose, poseCallback)
+        rospy.Subscriber("bebop_pose", Pose, poseCallback)
 	is_running = True
 	is_keyreader_finished = False
         is_landing = False
