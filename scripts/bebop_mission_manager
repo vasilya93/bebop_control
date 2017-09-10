@@ -1,0 +1,102 @@
+#!/usr/bin/env python
+
+import os
+import rospy
+import threading
+import sys, select, tty, termios
+
+import numpy as np
+
+from std_msgs.msg import Empty
+from std_msgs.msg import Bool
+from geometry_msgs.msg import Point
+from bebop_control.msg import Path
+from config_file import readConfigFile, writeConfigFile
+from convert_dict_to_points import convert_dict_to_points
+from build_path_2_opt import build_path_2_opt
+
+WAYPOINTS_FILENAME = "waypoints.ini"
+script_path = os.path.dirname(os.path.realpath(__file__))
+path = Path()
+
+STATE_SENDING_WAYPOINTS = 0
+STATE_WAITING_FINISH = 1
+
+mm_state = STATE_SENDING_WAYPOINTS
+
+def path_received_callback(path_received):
+    global mm_state
+    mm_state = STATE_WAITING_FINISH
+
+def prepare_path():
+    global path
+    dict_waypoints = readConfigFile(script_path, WAYPOINTS_FILENAME)
+    dict_points = convert_dict_to_points(dict_waypoints)
+    num_waypoints = len(dict_points)
+    points = [dict_points[key] for key in dict_waypoints]
+    points.insert(0, Point(-2.00, 0.5, 0.9))
+    points.append(Point(-2.00, 0.5, 0.9))
+    indeces = build_path_2_opt(points)
+    path.waypoints = []
+    for i in indeces:
+        path.waypoints.append(points[i])
+
+class NonBlockingConsole(object):
+    def __enter__(self):
+        self.old_settings = termios.tcgetattr(sys.stdin)
+        tty.setcbreak(sys.stdin.fileno())
+        return self
+
+    def __exit__(self, type, value, traceback):
+        termios.tcsetattr(sys.stdin, termios.TCSADRAIN, self.old_settings)
+
+    def get_data(self):
+        try:
+            if select.select([sys.stdin], [], [], 0) == ([sys.stdin], [], []):
+                return sys.stdin.read(1)
+        except:
+            return '[CTRL-C]'
+        return False
+
+def key_reader():
+    global is_keyreader_finished
+    message_empty = Empty()
+    with NonBlockingConsole() as nbc:
+        while is_running:
+            c = nbc.get_data()
+            time_current = rospy.get_time()
+            if c == '\x1b': # x1b is ESC
+                    is_keyreader_finished = True
+                    break
+            elif c == '5':
+                print "zero position"
+            elif c == 'l':
+                print "land"
+            elif c == 'n':
+                print "navigate"
+            elif c == 's':
+                print "saving images"
+
+def bebop_mission_manager():
+        global path
+	pub_path = rospy.Publisher('bebop_control/path', Path, queue_size=10)
+	rate = rospy.Rate(30)
+	while not rospy.is_shutdown() and not is_keyreader_finished:
+            if mm_state == STATE_SENDING_WAYPOINTS:
+                pub_path.publish(path)
+            time_current = rospy.get_time()
+            rate.sleep()
+
+if __name__ == '__main__':
+    try:
+	rospy.init_node('bebop_mission_manager', anonymous = True)
+        rospy.Subscriber("/bebop_control/path_received", Empty, path_received_callback)
+        prepare_path()
+	is_running = True
+	is_keyreader_finished = False
+	thread_reader = threading.Thread(target = key_reader)
+	thread_reader.start()
+        bebop_mission_manager()
+	is_running = False
+    except rospy.ROSInterruptException:
+        pass
